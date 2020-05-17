@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"runtime/debug"
 )
@@ -29,12 +31,11 @@ func recoverMw(app http.Handler, dev bool) http.HandlerFunc {
 					return
 				}
 
+				w.WriteHeader(http.StatusInternalServerError)
 				fmt.Fprintf(w, "<h1>panic : %v </h1> <pre>%s</pre>", err, string(stack))
 
 			}
 		}()
-
-		// new response writer
 
 		nw := &responseWrite{ResponseWriter: w}
 
@@ -42,12 +43,6 @@ func recoverMw(app http.Handler, dev bool) http.HandlerFunc {
 		nw.flush()
 	}
 }
-
-// type ResponseWriter interface {
-// 	Header() Header
-// 	Write([]byte) (int, error)
-// 	WriteHeader(statusCode int)
-// }
 
 type responseWrite struct {
 	http.ResponseWriter
@@ -63,6 +58,26 @@ func (rw *responseWrite) Write(b []byte) (int, error) {
 func (rw *responseWrite) WriteHeader(statusCode int) {
 
 	rw.status = statusCode
+}
+
+func (rw *responseWrite) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+
+	hijacker, ok := rw.ResponseWriter.(http.Hijacker)
+
+	if !ok {
+		return nil, nil, fmt.Errorf("the response writer doesn't support hijack interface")
+	}
+
+	return hijacker.Hijack()
+
+}
+
+func (rw *responseWrite) Flush() {
+	flusher, ok := rw.ResponseWriter.(http.Flusher)
+	if !ok {
+		return
+	}
+	flusher.Flush()
 }
 
 func (rw *responseWrite) flush() error {
